@@ -3,10 +3,12 @@ package com.example.bledfutesteractivity
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.le.ScanResult
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 
 class DeviceScanAdapter(
@@ -15,6 +17,7 @@ class DeviceScanAdapter(
 
     private val scanResults = mutableListOf<ScanResult>()
     private val deviceAddresses = mutableSetOf<String>()
+    private var selectedPosition = RecyclerView.NO_POSITION
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val deviceName: TextView = view.findViewById(R.id.device_name)
@@ -32,7 +35,24 @@ class DeviceScanAdapter(
         val result = scanResults[position]
         holder.deviceName.text = result.device.name?: "Unnamed Device"
         holder.deviceAddress.text = result.device.address
-        holder.itemView.setOnClickListener { onClickListener(result.device) }
+
+        // Highlight the selected item
+        if (selectedPosition == position) {
+            holder.itemView.setBackgroundColor(ContextCompat.getColor(holder.itemView.context, R.color.purple_200))
+        } else {
+            holder.itemView.setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        holder.itemView.setOnClickListener {
+            // Update selection state and redraw the old and new selected items
+            if (selectedPosition!= position) {
+                val previousPosition = selectedPosition
+                selectedPosition = position
+                notifyItemChanged(previousPosition)
+                notifyItemChanged(selectedPosition)
+            }
+            onClickListener(result.device) // Notify MainActivity of the selection
+        }
     }
 
     override fun getItemCount(): Int = scanResults.size
@@ -50,6 +70,7 @@ class DeviceScanAdapter(
         val size = scanResults.size
         scanResults.clear()
         deviceAddresses.clear()
+        selectedPosition = RecyclerView.NO_POSITION // Reset selection when clearing
         notifyItemRangeRemoved(0, size)
     }
 }

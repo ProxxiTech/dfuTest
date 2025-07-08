@@ -30,7 +30,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.launch
@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
                 textSelectedFile.text = fileName
                 viewModel.onFirmwareFileSelected(it)
                 Toast.makeText(this, "Selected file: $fileName", Toast.LENGTH_SHORT).show()
+                updateStartButtonState() // Update button state after selecting a file
             }
         }
 
@@ -111,8 +112,10 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
         setupClickListeners()
         observeViewModel()
-        createDfuNotificationChannel() // CORRECTED: Add this call here.
+        createDfuNotificationChannel()
         requestAllPermissions()
+
+        updateStartButtonState() // Initially disable the start button
     }
 
     override fun onStart() {
@@ -149,9 +152,11 @@ class MainActivity : AppCompatActivity() {
             selectedDevice = device
             Toast.makeText(this, "Selected: ${device.name?: device.address}", Toast.LENGTH_SHORT).show()
             viewModel.stopScan()
+            updateStartButtonState() // Update button state after selecting a device
         }
         devicesRecyclerView.adapter = deviceScanAdapter
-        devicesRecyclerView.layoutManager = LinearLayoutManager(this)
+        // Use GridLayoutManager for a 2-column layout
+        devicesRecyclerView.layoutManager = GridLayoutManager(this, 2)
     }
 
     private fun setupClickListeners() {
@@ -317,10 +322,17 @@ class MainActivity : AppCompatActivity() {
         return fileName
     }
 
-    // CORRECTED: This function creates the notification channel required by the DFU library.
     private fun createDfuNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             DfuServiceInitiator.createDfuNotificationChannel(this)
         }
+    }
+
+    /**
+     * Enables or disables the "Start Test" button based on whether a device
+     * and a file have been selected.
+     */
+    private fun updateStartButtonState() {
+        buttonStartStopTest.isEnabled = selectedDevice!= null && selectedFileUri!= null
     }
 }

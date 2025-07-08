@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logScrollView: ScrollView
     private lateinit var logTextView: TextView
     private lateinit var buttonShareLog: Button
+    private lateinit var buttonNewTest: Button // New button variable
 
     private var selectedDevice: BluetoothDevice? = null
     private var selectedFileUri: Uri? = null
@@ -100,7 +101,7 @@ class MainActivity : AppCompatActivity() {
                 textSelectedFile.text = fileName
                 viewModel.onFirmwareFileSelected(it)
                 Toast.makeText(this, "Selected file: $fileName", Toast.LENGTH_SHORT).show()
-                updateStartButtonState() // Update button state after selecting a file
+                updateStartButtonState()
             }
         }
 
@@ -115,7 +116,7 @@ class MainActivity : AppCompatActivity() {
         createDfuNotificationChannel()
         requestAllPermissions()
 
-        updateStartButtonState() // Initially disable the start button
+        updateStartButtonState()
     }
 
     override fun onStart() {
@@ -144,6 +145,7 @@ class MainActivity : AppCompatActivity() {
         logScrollView = findViewById(R.id.log_scroll_view)
         logTextView = findViewById(R.id.log_text_view)
         buttonShareLog = findViewById(R.id.button_share_log)
+        buttonNewTest = findViewById(R.id.button_new_test) // Find the new button
     }
 
     @SuppressLint("MissingPermission")
@@ -152,10 +154,9 @@ class MainActivity : AppCompatActivity() {
             selectedDevice = device
             Toast.makeText(this, "Selected: ${device.name?: device.address}", Toast.LENGTH_SHORT).show()
             viewModel.stopScan()
-            updateStartButtonState() // Update button state after selecting a device
+            updateStartButtonState()
         }
         devicesRecyclerView.adapter = deviceScanAdapter
-        // Use GridLayoutManager for a 2-column layout
         devicesRecyclerView.layoutManager = GridLayoutManager(this, 2)
     }
 
@@ -167,6 +168,9 @@ class MainActivity : AppCompatActivity() {
         buttonStartStopTest.setOnClickListener { onStartStopTestClicked() }
 
         buttonShareLog.setOnClickListener { onShareLogClicked() }
+
+        // Set the click listener for the new button
+        buttonNewTest.setOnClickListener { resetForNewTest() }
     }
 
     private fun onStartStopTestClicked() {
@@ -250,7 +254,11 @@ class MainActivity : AppCompatActivity() {
                         editTextIterations.isEnabled =!isRunning
                         editTextTimeout.isEnabled =!isRunning
                         devicesRecyclerView.isEnabled =!isRunning
-                        buttonShareLog.visibility = if (!isRunning && logTextView.text.isNotEmpty()) View.VISIBLE else View.GONE
+
+                        // Show share and new test buttons only when the test is finished and there are logs
+                        val showPostTestButtons =!isRunning && logTextView.text.isNotEmpty()
+                        buttonShareLog.visibility = if (showPostTestButtons) View.VISIBLE else View.GONE
+                        buttonNewTest.visibility = if (showPostTestButtons) View.VISIBLE else View.GONE
                     }
                 }
 
@@ -328,11 +336,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Enables or disables the "Start Test" button based on whether a device
-     * and a file have been selected.
-     */
     private fun updateStartButtonState() {
         buttonStartStopTest.isEnabled = selectedDevice!= null && selectedFileUri!= null
+    }
+
+    /**
+     * Resets the UI to its initial state to allow for a new test.
+     */
+    private fun resetForNewTest() {
+        // Clear selections
+        selectedDevice = null
+        selectedFileUri = null
+
+        // Reset UI elements
+        textSelectedFile.text = ""
+        logTextView.text = ""
+        progressBar.progress = 0
+        deviceScanAdapter.clearDevices() // This will also reset the selection highlight
+
+        // Update button states
+        updateStartButtonState()
+        buttonNewTest.visibility = View.GONE
+        buttonShareLog.visibility = View.GONE
+
+        // Re-enable scanning
+        requestAllPermissions()
     }
 }

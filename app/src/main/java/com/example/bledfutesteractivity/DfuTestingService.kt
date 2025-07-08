@@ -13,6 +13,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -53,7 +54,15 @@ class DfuTestingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification("DFU Stress Test is running...")
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
         return START_NOT_STICKY
     }
 
@@ -72,13 +81,18 @@ class DfuTestingService : Service() {
         if (isTestRunning.value) return
 
         testJob = serviceScope.launch {
-            isTestRunning.value = true
-            setupLogFile()
-            runTestLoop(deviceAddress, firmwareUri, iterations, timeoutSeconds)
-            isTestRunning.value = false
-            log("Test finished. Final Score -> Success: $successCount, Fail: $failCount")
-            stopForeground(true)
-            stopSelf()
+            try {
+                isTestRunning.value = true
+                setupLogFile()
+                runTestLoop(deviceAddress, firmwareUri, iterations, timeoutSeconds)
+            } finally {
+                // This 'finally' block will now execute whether the test finishes
+                // normally or is cancelled by the user.
+                isTestRunning.value = false
+                log("Test session ended. Final Score -> Success: $successCount, Fail: $failCount")
+                stopForeground(true)
+                stopSelf()
+            }
         }
     }
 
@@ -98,7 +112,7 @@ class DfuTestingService : Service() {
         failCount = 0
 
         for (i in 1..iterations) {
-            coroutineContext.ensureActive() // CORRECTED: Check for cancellation
+            coroutineContext.ensureActive()
 
             log("--- Starting DFU Iteration ${i}/${iterations} on device ${currentDeviceAddress} ---")
             updateNotificationProgress(i, iterations)
@@ -116,7 +130,7 @@ class DfuTestingService : Service() {
             testProgress.value = (i * 100) / iterations
 
             if (i < iterations) {
-                coroutineContext.ensureActive() // CORRECTED: Check for cancellation
+                coroutineContext.ensureActive()
                 log("Waiting 30 seconds before next scan...")
                 delay(30_000)
 
@@ -141,7 +155,6 @@ class DfuTestingService : Service() {
             }
         } catch (e: TimeoutCancellationException) {
             log("DFU timed out after $timeoutSeconds seconds.")
-            // The DFU will be aborted by the cancellation handler in initiateDfu
             false
         } catch (e: Exception) {
             log("An unexpected error occurred during DFU: ${e.message}")
@@ -180,10 +193,8 @@ class DfuTestingService : Service() {
                 .setUnsafeExperimentalButtonlessServiceInSecureDfuEnabled(true)
                 .setZip(uri)
 
-            // CORRECTED: Start your own DfuService class, not the library's internal one.
             val controller = starter.start(this, DfuService::class.java)
 
-            // CORRECTED: Use the controller returned by starter.start() to handle cancellation.
             continuation.invokeOnCancellation {
                 log("Dfu coroutine cancelled. Aborting DFU.")
                 controller.abort()
@@ -193,7 +204,7 @@ class DfuTestingService : Service() {
 
     @SuppressLint("MissingPermission")
     private suspend fun findDeviceAfterDfu(lastKnownAddress: String): BluetoothDevice? {
-        return withTimeoutOrNull(5 * 60 * 1000) { // 5-minute overall timeout
+        return withTimeoutOrNull(5 * 60 * 1000) {
             suspendCancellableCoroutine { continuation ->
                 val leScanner = BluetoothAdapter.getDefaultAdapter().bluetoothLeScanner
                 var deviceFound = false

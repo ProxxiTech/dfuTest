@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <TextView
+        android:id="@+id/label_devices"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="1. Select Target Device:"
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_margin="16dp"/>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/devices_recycler_view"
+        android:layout_width="0dp"
+        android:layout_height="150dp"
+        app:layout_constraintTop_toBottomOf="@id/label_devices"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_margin="16dp"
+        tools:listitem="@layout/list_item_device"/>
+
+    <TextView
+        android:id="@+id/label_firmware"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="2. Select Firmware and Configure Test:"
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        app:layout_constraintTop_toBottomOf="@id/devices_recycler_view"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_margin="16dp"/>
+
+    <Button
+        android:id="@+id/button_select_file"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Select DFU File (.zip)"
+        app:layout_constraintTop_toBottomOf="@id/label_firmware"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="16dp"/>
+
+    <TextView
+        android:id="@+id/text_selected_file"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        app:layout_constraintStart_toEndOf="@id/button_select_file"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="@id/button_select_file"
+        app:layout_constraintTop_toTopOf="@id/button_select_file"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="16dp"
+        tools:text="firmware_v1.2.3.zip"/>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_iterations"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="Number of Iterations"
+        app:layout_constraintTop_toBottomOf="@id/button_select_file"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/guideline_vertical_50"
+        android:layout_margin="16dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/edit_text_iterations"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:text="10"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/layout_timeout"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="DFU Timeout (seconds)"
+        app:layout_constraintTop_toBottomOf="@id/button_select_file"
+        app:layout_constraintStart_toEndOf="@id/guideline_vertical_50"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_margin="16dp">
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/edit_text_timeout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:text="120"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <Button
+        android:id="@+id/button_start_stop_test"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Start Test"
+        app:layout_constraintTop_toBottomOf="@id/layout_iterations"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_margin="16dp"/>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progress_bar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toBottomOf="@id/button_start_stop_test"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"/>
+
+    <ScrollView
+        android:id="@+id/log_scroll_view"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/progress_bar"
+        app:layout_constraintBottom_toTopOf="@id/button_share_log"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_margin="16dp"
+        android:background="#ECECEC">
+        <TextView
+            android:id="@+id/log_text_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:typeface="monospace"
+            tools:text=" Log message 1...\n Log message 2..."/>
+    </ScrollView>
+
+    <Button
+        android:id="@+id/button_share_log"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Share Log"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_margin="16dp"
+        tools:visibility="visible"/>
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_vertical_50"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.5"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

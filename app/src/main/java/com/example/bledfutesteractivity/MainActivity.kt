@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.provider.OpenableColumns
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ScrollView
@@ -53,7 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logScrollView: ScrollView
     private lateinit var logTextView: TextView
     private lateinit var buttonShareLog: Button
-    private lateinit var buttonNewTest: Button // New button variable
+    private lateinit var buttonNewTest: Button
 
     private var selectedDevice: BluetoothDevice? = null
     private var selectedFileUri: Uri? = null
@@ -145,7 +146,7 @@ class MainActivity : AppCompatActivity() {
         logScrollView = findViewById(R.id.log_scroll_view)
         logTextView = findViewById(R.id.log_text_view)
         buttonShareLog = findViewById(R.id.button_share_log)
-        buttonNewTest = findViewById(R.id.button_new_test) // Find the new button
+        buttonNewTest = findViewById(R.id.button_new_test)
     }
 
     @SuppressLint("MissingPermission")
@@ -169,7 +170,6 @@ class MainActivity : AppCompatActivity() {
 
         buttonShareLog.setOnClickListener { onShareLogClicked() }
 
-        // Set the click listener for the new button
         buttonNewTest.setOnClickListener { resetForNewTest() }
     }
 
@@ -249,13 +249,19 @@ class MainActivity : AppCompatActivity() {
 
                 launch {
                     viewModel.isTestRunning.collect { isRunning ->
+                        // This is the new logic to keep the screen on
+                        if (isRunning) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+
                         buttonStartStopTest.text = if (isRunning) "Stop Test" else "Start Test"
                         buttonSelectFile.isEnabled =!isRunning
                         editTextIterations.isEnabled =!isRunning
                         editTextTimeout.isEnabled =!isRunning
                         devicesRecyclerView.isEnabled =!isRunning
 
-                        // Show share and new test buttons only when the test is finished and there are logs
                         val showPostTestButtons =!isRunning && logTextView.text.isNotEmpty()
                         buttonShareLog.visibility = if (showPostTestButtons) View.VISIBLE else View.GONE
                         buttonNewTest.visibility = if (showPostTestButtons) View.VISIBLE else View.GONE
@@ -340,26 +346,19 @@ class MainActivity : AppCompatActivity() {
         buttonStartStopTest.isEnabled = selectedDevice!= null && selectedFileUri!= null
     }
 
-    /**
-     * Resets the UI to its initial state to allow for a new test.
-     */
     private fun resetForNewTest() {
-        // Clear selections
         selectedDevice = null
         selectedFileUri = null
 
-        // Reset UI elements
         textSelectedFile.text = ""
         logTextView.text = ""
         progressBar.progress = 0
-        deviceScanAdapter.clearDevices() // This will also reset the selection highlight
+        deviceScanAdapter.clearDevices()
 
-        // Update button states
         updateStartButtonState()
         buttonNewTest.visibility = View.GONE
         buttonShareLog.visibility = View.GONE
 
-        // Re-enable scanning
         requestAllPermissions()
     }
 }

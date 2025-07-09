@@ -41,7 +41,6 @@ class DfuTestingService : Service() {
 
     private var successCount = 0
     private var failCount = 0
-    private lateinit var logFile: File
     private var testJob: Job? = null
 
     private lateinit var notificationManager: NotificationManager
@@ -49,7 +48,6 @@ class DfuTestingService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        setupLogFile()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -86,8 +84,6 @@ class DfuTestingService : Service() {
                 setupLogFile()
                 runTestLoop(deviceAddress, firmwareUri, iterations, timeoutSeconds)
             } finally {
-                // This 'finally' block will now execute whether the test finishes
-                // normally or is cancelled by the user.
                 isTestRunning.value = false
                 log("Test session ended. Final Score -> Success: $successCount, Fail: $failCount")
                 stopForeground(true)
@@ -223,10 +219,17 @@ class DfuTestingService : Service() {
                     }
                 }
 
-                val incrementedAddress = getIncrementedMacAddress(lastKnownAddress)
                 val filters = mutableListOf(ScanFilter.Builder().setDeviceAddress(lastKnownAddress).build())
+
+                val incrementedAddress = getIncrementedMacAddress(lastKnownAddress)
                 incrementedAddress?.let {
                     log("Also scanning for incremented address: $it")
+                    filters.add(ScanFilter.Builder().setDeviceAddress(it).build())
+                }
+
+                val decrementedAddress = getDecrementedMacAddress(lastKnownAddress)
+                decrementedAddress?.let {
+                    log("Also scanning for decremented address: $it")
                     filters.add(ScanFilter.Builder().setDeviceAddress(it).build())
                 }
 
@@ -250,10 +253,22 @@ class DfuTestingService : Service() {
         }
     }
 
+    private fun getDecrementedMacAddress(macAddress: String): String? {
+        return try {
+            val macAsLong = macAddress.replace(":", "").toLong(16)
+            val decrementedMac = String.format("%012X", macAsLong - 1)
+            decrementedMac.chunked(2).joinToString(":")
+        } catch (e: NumberFormatException) {
+            null
+        }
+    }
+
     private fun setupLogFile() {
         val logDir = File(cacheDir, "logs")
-        if (!logDir.exists()) logDir.mkdirs()
-        logFile = File(logDir, "dfu_stress_test_log.txt")
+        if (!logDir.exists()) {
+            logDir.mkdirs()
+        }
+        val logFile = File(logDir, "dfu_stress_test_log.txt")
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
         logFile.writeText("DFU Stress Test Log - Session started at $timestamp\n\n")
         logMessages.value = ""
@@ -263,8 +278,16 @@ class DfuTestingService : Service() {
         val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
         val logEntry = "[$timestamp] $message\n"
         logMessages.value += logEntry
+
+        // This robust approach ensures the file reference is always valid.
+        val logDir = File(cacheDir, "logs")
+        val logFile = File(logDir, "dfu_stress_test_log.txt")
+
         try {
-            logFile.appendText(logEntry)
+            // Synchronized block to prevent potential (though unlikely) concurrent write issues.
+            synchronized(this) {
+                logFile.appendText(logEntry)
+            }
         } catch (e: IOException) {
             e.printStackTrace()
         }

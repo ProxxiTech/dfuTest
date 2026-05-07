@@ -16,6 +16,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.OpenableColumns
+import android.graphics.Color
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -33,6 +37,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.launch
 import no.nordicsemi.android.dfu.DfuServiceInitiator
@@ -55,9 +60,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logTextView: TextView
     private lateinit var buttonShareLog: Button
     private lateinit var buttonNewTest: Button
+    private lateinit var buttonRescan: Button
+    private lateinit var labelDevices: TextView
+    private lateinit var progressBarDfu: LinearProgressIndicator
+    private lateinit var textIterationStatus: TextView
+    private lateinit var textDfuStatus: TextView
+    private lateinit var pieChart: PieChartView
+    private lateinit var textPieLegend: TextView
 
     private var selectedDevice: BluetoothDevice? = null
-    private var selectedFileUri: Uri? = null
+    private var cachedFirmwareFile: File? = null
 
     private var dfuService: DfuTestingService? = null
     private var isBound = false
@@ -97,11 +109,15 @@ class MainActivity : AppCompatActivity() {
     private val selectFileLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let {
-                selectedFileUri = it
                 val fileName = getFileNameFromUri(this, it)
-                textSelectedFile.text = fileName
-                viewModel.onFirmwareFileSelected(it)
-                Toast.makeText(this, "Selected file: $fileName", Toast.LENGTH_SHORT).show()
+                cachedFirmwareFile = copyFirmwareToCache(it)
+                if (cachedFirmwareFile != null) {
+                    textSelectedFile.text = fileName
+                    buttonSelectFile.text = "Change File"
+                    viewModel.onFirmwareFileSelected(it)
+                } else {
+                    Toast.makeText(this, "Failed to read firmware file.", Toast.LENGTH_LONG).show()
+                }
                 updateStartButtonState()
             }
         }
@@ -136,6 +152,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        labelDevices = findViewById(R.id.label_devices)
         devicesRecyclerView = findViewById(R.id.devices_recycler_view)
         buttonSelectFile = findViewById(R.id.button_select_file)
         textSelectedFile = findViewById(R.id.text_selected_file)
@@ -147,18 +164,39 @@ class MainActivity : AppCompatActivity() {
         logTextView = findViewById(R.id.log_text_view)
         buttonShareLog = findViewById(R.id.button_share_log)
         buttonNewTest = findViewById(R.id.button_new_test)
+        buttonRescan = findViewById(R.id.button_rescan)
+        progressBarDfu = findViewById(R.id.progress_bar_dfu)
+        textIterationStatus = findViewById(R.id.text_iteration_status)
+        textDfuStatus = findViewById(R.id.text_dfu_status)
+        pieChart = findViewById(R.id.pie_chart)
+        textPieLegend = findViewById(R.id.text_pie_legend)
     }
 
     @SuppressLint("MissingPermission")
     private fun setupRecyclerView() {
         deviceScanAdapter = DeviceScanAdapter { device ->
             selectedDevice = device
-            Toast.makeText(this, "Selected: ${device.name?: device.address}", Toast.LENGTH_SHORT).show()
             viewModel.stopScan()
+            val label = if (device.name != null) "${device.name} (${device.address})" else device.address
+            collapseDeviceSection(label)
             updateStartButtonState()
         }
         devicesRecyclerView.adapter = deviceScanAdapter
         devicesRecyclerView.layoutManager = GridLayoutManager(this, 2)
+        (devicesRecyclerView.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+    }
+
+    private fun collapseDeviceSection(deviceLabel: String) {
+        labelDevices.text = "Device: $deviceLabel"
+        devicesRecyclerView.visibility = View.GONE
+        buttonRescan.text = "Change"
+    }
+
+    private fun expandDeviceSection() {
+        labelDevices.text = "Nearby Devices"
+        devicesRecyclerView.visibility = View.VISIBLE
+        buttonRescan.text = "Rescan"
+        deviceScanAdapter.clearDevices()
     }
 
     private fun setupClickListeners() {
@@ -171,6 +209,13 @@ class MainActivity : AppCompatActivity() {
         buttonShareLog.setOnClickListener { onShareLogClicked() }
 
         buttonNewTest.setOnClickListener { resetForNewTest() }
+
+        buttonRescan.setOnClickListener {
+            selectedDevice = null
+            updateStartButtonState()
+            expandDeviceSection()
+            startScan()
+        }
     }
 
     private fun onStartStopTestClicked() {
@@ -184,15 +229,15 @@ class MainActivity : AppCompatActivity() {
             }
 
             val device = selectedDevice
-            val fileUri = selectedFileUri
-            val iterations = editTextIterations.text.toString().toIntOrNull()?: 10
-            val timeout = editTextTimeout.text.toString().toLongOrNull()?: 120
+            val firmwareFile = cachedFirmwareFile
+            val iterations = editTextIterations.text.toString().toIntOrNull() ?: 10
+            val timeout = editTextTimeout.text.toString().toLongOrNull() ?: 120
 
             if (device == null) {
                 Toast.makeText(this, "Please select a target device.", Toast.LENGTH_SHORT).show()
                 return
             }
-            if (fileUri == null) {
+            if (firmwareFile == null) {
                 Toast.makeText(this, "Please select a DFU firmware file.", Toast.LENGTH_SHORT).show()
                 return
             }
@@ -204,7 +249,7 @@ class MainActivity : AppCompatActivity() {
                     startService(intent)
                 }
             }
-            service.startTest(device.address, fileUri, iterations, timeout)
+            service.startTest(device.name, device.address, firmwareFile, iterations, timeout)
         }
     }
 
@@ -257,10 +302,11 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         buttonStartStopTest.text = if (isRunning) "Stop Test" else "Start Test"
-                        buttonSelectFile.isEnabled =!isRunning
-                        editTextIterations.isEnabled =!isRunning
-                        editTextTimeout.isEnabled =!isRunning
-                        devicesRecyclerView.isEnabled =!isRunning
+                        buttonSelectFile.isEnabled = !isRunning
+                        editTextIterations.isEnabled = !isRunning
+                        editTextTimeout.isEnabled = !isRunning
+                        devicesRecyclerView.isEnabled = !isRunning
+                        buttonRescan.isEnabled = !isRunning
 
                         val showPostTestButtons =!isRunning && logTextView.text.isNotEmpty()
                         buttonShareLog.visibility = if (showPostTestButtons) View.VISIBLE else View.GONE
@@ -270,12 +316,70 @@ class MainActivity : AppCompatActivity() {
 
                 launch {
                     viewModel.scannedDevices.collect { devices ->
-                        deviceScanAdapter.clearDevices()
-                        devices.forEach { deviceScanAdapter.addDevice(it) }
+                        if (devices.isEmpty()) {
+                            deviceScanAdapter.clearDevices()
+                        } else {
+                            devices.forEach { deviceScanAdapter.addDevice(it) }
+                        }
                     }
+                }
+
+                launch {
+                    viewModel.dfuIterationProgress.collect { percent ->
+                        progressBarDfu.progress = percent
+                        textDfuStatus.text = "Upload: $percent%"
+                    }
+                }
+
+                launch {
+                    viewModel.currentIteration.collect { updateIterationStatus() }
+                }
+
+                launch {
+                    viewModel.totalIterations.collect { updateIterationStatus() }
+                }
+
+                launch {
+                    viewModel.successCount.collect { updatePieChart() }
+                }
+
+                launch {
+                    viewModel.failCount.collect { updatePieChart() }
+                }
+
+                launch {
+                    viewModel.totalIterations.collect { updatePieChart() }
                 }
             }
         }
+    }
+
+    private fun updateIterationStatus() {
+        val current = viewModel.currentIteration.value
+        val total = viewModel.totalIterations.value
+        textIterationStatus.text = if (total > 0) "Iteration: $current / $total" else "–"
+    }
+
+    private fun updatePieChart() {
+        val success   = viewModel.successCount.value
+        val fail      = viewModel.failCount.value
+        val remaining = maxOf(0, viewModel.totalIterations.value - success - fail)
+        pieChart.successCount   = success
+        pieChart.failCount      = fail
+        pieChart.remainingCount = remaining
+
+        val sb = SpannableStringBuilder()
+        fun append(text: String, color: Int) {
+            val start = sb.length
+            sb.append(text)
+            sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        append("✓$success",   Color.parseColor("#4CAF50"))
+        sb.append("  ")
+        append("✗$fail",      Color.parseColor("#F44336"))
+        sb.append("  ")
+        append("…$remaining", Color.parseColor("#9E9E9E"))
+        textPieLegend.text = sb
     }
 
     private fun requestAllPermissions() {
@@ -342,19 +446,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun copyFirmwareToCache(uri: Uri): File? {
+        return try {
+            val firmwareDir = File(cacheDir, "firmware")
+            firmwareDir.mkdirs()
+            val dest = File(firmwareDir, "firmware.zip")
+            contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { input.copyTo(it) }
+            }
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun updateStartButtonState() {
-        buttonStartStopTest.isEnabled = selectedDevice!= null && selectedFileUri!= null
+        buttonStartStopTest.isEnabled = selectedDevice != null && cachedFirmwareFile != null
     }
 
     private fun resetForNewTest() {
         selectedDevice = null
-        selectedFileUri = null
+        cachedFirmwareFile = null
 
         textSelectedFile.text = ""
+        buttonSelectFile.text = "Select DFU File"
         logTextView.text = ""
         progressBar.progress = 0
-        deviceScanAdapter.clearDevices()
+        progressBarDfu.progress = 0
+        textIterationStatus.text = "–"
+        textDfuStatus.text = "Upload: 0%"
+        textPieLegend.text = ""
+        viewModel.resetStats()
+        updatePieChart()
 
+        expandDeviceSection()
         updateStartButtonState()
         buttonNewTest.visibility = View.GONE
         buttonShareLog.visibility = View.GONE

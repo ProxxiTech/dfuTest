@@ -37,6 +37,11 @@ android {
     buildFeatures {
         viewBinding = true
     }
+    packaging {
+        resources {
+            excludes += setOf("META-INF/NOTICE.md", "META-INF/LICENSE.md")
+        }
+    }
 }
 
 dependencies {
@@ -54,6 +59,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.activity.ktx) // Provides by viewModels()
+    implementation(libs.android.mail)
+    implementation(libs.android.activation)
 
     // Testing dependencies
     testImplementation(libs.junit)

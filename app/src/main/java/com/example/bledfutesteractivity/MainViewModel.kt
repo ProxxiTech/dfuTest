@@ -26,6 +26,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTestRunning = MutableStateFlow(false)
     private val _scannedDevices = MutableStateFlow<List<ScanResult>>(emptyList())
     private val _selectedFileUri = MutableStateFlow<Uri?>(null)
+    private val _dfuIterationProgress = MutableStateFlow(0)
+    private val _successCount = MutableStateFlow(0)
+    private val _failCount = MutableStateFlow(0)
+    private val _totalIterations = MutableStateFlow(0)
+    private val _currentIteration = MutableStateFlow(0)
 
     // Public immutable flows for the UI to observe
     val logMessages = _logMessages.asStateFlow()
@@ -33,6 +38,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isTestRunning = _isTestRunning.asStateFlow()
     val scannedDevices = _scannedDevices.asStateFlow()
     val selectedFileUri = _selectedFileUri.asStateFlow()
+    val dfuIterationProgress = _dfuIterationProgress.asStateFlow()
+    val successCount = _successCount.asStateFlow()
+    val failCount = _failCount.asStateFlow()
+    val totalIterations = _totalIterations.asStateFlow()
+    val currentIteration = _currentIteration.asStateFlow()
 
     private var dfuService: DfuTestingService? = null
     private var serviceJob: Job? = null
@@ -49,8 +59,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             if (result.device.name!= null) {
-                scanResults[result.device.address] = result
-                _scannedDevices.value = scanResults.values.toList().sortedByDescending { it.rssi }
+                if (!scanResults.containsKey(result.device.address)) {
+                    scanResults[result.device.address] = result
+                    _scannedDevices.value = scanResults.values.toList()
+                }
             }
         }
         override fun onScanFailed(errorCode: Int) {
@@ -65,6 +77,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch { service.logMessages.collect { _logMessages.value = it } }
             launch { service.testProgress.collect { _testProgress.value = it } }
             launch { service.isTestRunning.collect { _isTestRunning.value = it } }
+            launch { service.dfuIterationProgress.collect { _dfuIterationProgress.value = it } }
+            launch { service.successCountFlow.collect { _successCount.value = it } }
+            launch { service.failCountFlow.collect { _failCount.value = it } }
+            launch { service.totalIterationsFlow.collect { _totalIterations.value = it } }
+            launch { service.currentIterationFlow.collect { _currentIteration.value = it } }
         }
     }
 
@@ -104,6 +121,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopScan() {
         scanJob?.cancel()
         scanner?.stopScan(scanCallback)
+    }
+
+    fun resetStats() {
+        _dfuIterationProgress.value = 0
+        _successCount.value = 0
+        _failCount.value = 0
+        _totalIterations.value = 0
+        _currentIteration.value = 0
+        _testProgress.value = 0
     }
 
     @SuppressLint("MissingPermission")

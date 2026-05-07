@@ -14,7 +14,6 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -26,6 +25,16 @@ import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import javax.activation.DataHandler
+import javax.activation.FileDataSource
+import javax.mail.Message
+import javax.mail.PasswordAuthentication
+import javax.mail.Session
+import javax.mail.Transport
+import javax.mail.internet.InternetAddress
+import javax.mail.internet.MimeBodyPart
+import javax.mail.internet.MimeMessage
+import javax.mail.internet.MimeMultipart
 import kotlin.coroutines.resume
 import kotlin.coroutines.coroutineContext
 
@@ -38,10 +47,19 @@ class DfuTestingService : Service() {
     val logMessages = MutableStateFlow("")
     val testProgress = MutableStateFlow(0)
     val isTestRunning = MutableStateFlow(false)
+    val dfuIterationProgress = MutableStateFlow(0)
+    val successCountFlow = MutableStateFlow(0)
+    val failCountFlow = MutableStateFlow(0)
+    val totalIterationsFlow = MutableStateFlow(0)
+    val currentIterationFlow = MutableStateFlow(0)
 
     private var successCount = 0
     private var failCount = 0
     private var testJob: Job? = null
+
+    private var testDeviceName: String? = null
+    private var testDeviceAddress: String = ""
+    private var testFirmwareFileName: String = ""
 
     private lateinit var notificationManager: NotificationManager
 
@@ -75,17 +93,30 @@ class DfuTestingService : Service() {
         fun getService(): DfuTestingService = this@DfuTestingService
     }
 
-    fun startTest(deviceAddress: String, firmwareUri: Uri, iterations: Int, timeoutSeconds: Long) {
+    fun startTest(deviceName: String?, deviceAddress: String, firmwareFile: File, iterations: Int, timeoutSeconds: Long) {
         if (isTestRunning.value) return
+
+        testDeviceName = deviceName
+        testDeviceAddress = deviceAddress
+        testFirmwareFileName = firmwareFile.name
 
         testJob = serviceScope.launch {
             try {
                 isTestRunning.value = true
+                totalIterationsFlow.value = iterations
+                successCountFlow.value = 0
+                failCountFlow.value = 0
+                currentIterationFlow.value = 0
+                dfuIterationProgress.value = 0
                 setupLogFile()
-                runTestLoop(deviceAddress, firmwareUri, iterations, timeoutSeconds)
+                runTestLoop(deviceAddress, firmwareFile, iterations, timeoutSeconds)
             } finally {
                 isTestRunning.value = false
+                currentIterationFlow.value = 0
+                dfuIterationProgress.value = 0
                 log("Test session ended. Final Score -> Success: $successCount, Fail: $failCount")
+                sendTestReport()
+                @Suppress("DEPRECATION")
                 stopForeground(true)
                 stopSelf()
             }
@@ -99,7 +130,7 @@ class DfuTestingService : Service() {
 
     private suspend fun runTestLoop(
         initialDeviceAddress: String,
-        firmwareUri: Uri,
+        firmwareFile: File,
         iterations: Int,
         timeoutSeconds: Long
     ) {
@@ -110,16 +141,21 @@ class DfuTestingService : Service() {
         for (i in 1..iterations) {
             coroutineContext.ensureActive()
 
+            currentIterationFlow.value = i
+            dfuIterationProgress.value = 0
+
             log("--- Starting DFU Iteration ${i}/${iterations} on device ${currentDeviceAddress} ---")
             updateNotificationProgress(i, iterations)
 
-            val dfuResult = performDfuWithTimeout(currentDeviceAddress, firmwareUri, timeoutSeconds)
+            val dfuResult = performDfuWithTimeout(currentDeviceAddress, firmwareFile, timeoutSeconds)
 
             if (dfuResult) {
                 successCount++
+                successCountFlow.value = successCount
                 log("DFU Iteration ${i} SUCCESSFUL.")
             } else {
                 failCount++
+                failCountFlow.value = failCount
                 log("DFU Iteration ${i} FAILED.")
             }
 
@@ -127,8 +163,8 @@ class DfuTestingService : Service() {
 
             if (i < iterations) {
                 coroutineContext.ensureActive()
-                log("Waiting 30 seconds before next scan...")
-                delay(30_000)
+                log("Waiting 60 seconds before next scan...")
+                delay(60_000)
 
                 log("Re-scanning for device (last known address: $currentDeviceAddress)...")
                 val foundDevice = findDeviceAfterDfu(currentDeviceAddress)
@@ -144,21 +180,33 @@ class DfuTestingService : Service() {
         }
     }
 
-    private suspend fun performDfuWithTimeout(address: String, uri: Uri, timeoutSeconds: Long): Boolean {
-        return try {
-            withTimeout(timeoutSeconds * 1000) {
-                initiateDfu(address, uri)
+    private suspend fun performDfuWithTimeout(address: String, firmwareFile: File, timeoutSeconds: Long): Boolean {
+        repeat(2) { attempt ->
+            if (attempt > 0) {
+                log("Retrying DFU after GATT error (attempt 2/2)...")
+                delay(5_000)
             }
-        } catch (e: TimeoutCancellationException) {
-            log("DFU timed out after $timeoutSeconds seconds.")
-            false
-        } catch (e: Exception) {
-            log("An unexpected error occurred during DFU: ${e.message}")
-            false
+            val outcome = try {
+                withTimeout(timeoutSeconds * 1000) { initiateDfu(address, firmwareFile) }
+            } catch (e: TimeoutCancellationException) {
+                log("DFU timed out after $timeoutSeconds seconds.")
+                return false
+            } catch (e: Exception) {
+                log("An unexpected error occurred during DFU: ${e.message}")
+                return false
+            }
+            when (outcome) {
+                true  -> return true
+                false -> return false
+                null  -> { /* GATT error 133 — loop will retry once */ }
+            }
         }
+        log("DFU failed after 2 attempts (GATT error 133).")
+        return false
     }
 
-    private suspend fun initiateDfu(address: String, uri: Uri): Boolean =
+    // Returns true = success, false = non-retryable failure, null = GATT error 133 (retryable)
+    private suspend fun initiateDfu(address: String, firmwareFile: File): Boolean? =
         suspendCancellableCoroutine { continuation ->
             val progressListener = object : DfuProgressListenerAdapter() {
                 override fun onDfuCompleted(deviceAddress: String) {
@@ -167,12 +215,16 @@ class DfuTestingService : Service() {
 
                 override fun onError(deviceAddress: String, error: Int, errorType: Int, message: String?) {
                     log("DFU Error: $message (Code: $error)")
-                    if (continuation.isActive) continuation.resume(false)
+                    val result: Boolean? = if (error == 133) null else false
+                    if (continuation.isActive) continuation.resume(result)
                 }
 
                 override fun onDfuAborted(deviceAddress: String) {
                     log("DFU Aborted.")
                     if (continuation.isActive) continuation.resume(false)
+                }
+                override fun onProgressChanged(deviceAddress: String, percent: Int, speed: Float, avgSpeed: Float, currentPart: Int, partsTotal: Int) {
+                    dfuIterationProgress.value = percent
                 }
                 override fun onDeviceConnecting(deviceAddress: String) { log("Connecting to DFU target...") }
                 override fun onDfuProcessStarting(deviceAddress: String) { log("DFU process starting...") }
@@ -187,7 +239,9 @@ class DfuTestingService : Service() {
                 .setKeepBond(false)
                 .setForceDfu(true)
                 .setUnsafeExperimentalButtonlessServiceInSecureDfuEnabled(true)
-                .setZip(uri)
+                .setRebootTime(2000)       // wait 2 s after disconnect before scanning for bootloader
+                .setScanTimeout(15_000)    // scan up to 15 s for the bootloader (default is 5 s)
+                .setZip(firmwareFile.absolutePath)
 
             val controller = starter.start(this, DfuService::class.java)
 
@@ -202,7 +256,7 @@ class DfuTestingService : Service() {
     private suspend fun findDeviceAfterDfu(lastKnownAddress: String): BluetoothDevice? {
         return withTimeoutOrNull(5 * 60 * 1000) {
             suspendCancellableCoroutine { continuation ->
-                val leScanner = BluetoothAdapter.getDefaultAdapter().bluetoothLeScanner
+                val leScanner = (getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter.bluetoothLeScanner
                 var deviceFound = false
 
                 val scanCallback = object : ScanCallback() {
@@ -260,6 +314,59 @@ class DfuTestingService : Service() {
             decrementedMac.chunked(2).joinToString(":")
         } catch (e: NumberFormatException) {
             null
+        }
+    }
+
+    private fun sendTestReport() {
+        val logFile = File(File(cacheDir, "logs"), "dfu_stress_test_log.txt")
+        val deviceLabel = if (testDeviceName != null) "$testDeviceName ($testDeviceAddress)" else testDeviceAddress
+        val subject = "DFU Stress Test Report – $deviceLabel"
+        val body = """
+            DFU Stress Test completed.
+
+            Device:   $deviceLabel
+            Firmware: $testFirmwareFileName
+
+            Results:
+              Success: $successCount
+              Fail:    $failCount
+              Total:   ${successCount + failCount}
+
+            Full log attached.
+        """.trimIndent()
+
+        try {
+            val props = Properties().apply {
+                put("mail.smtp.auth", "true")
+                put("mail.smtp.starttls.enable", "true")
+                put("mail.smtp.host", "smtp.gmail.com")
+                put("mail.smtp.port", "587")
+            }
+            val session = Session.getInstance(props, object : javax.mail.Authenticator() {
+                override fun getPasswordAuthentication() =
+                    PasswordAuthentication("kaimeng@proxxiband.com", "wnpjtnxzostaforb")
+            })
+
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress("kaimeng@proxxiband.com"))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse("kaimeng@proxxiband.com"))
+                setSubject(subject)
+            }
+
+            val textPart = MimeBodyPart().apply { setText(body) }
+            val attachPart = MimeBodyPart().apply {
+                dataHandler = DataHandler(FileDataSource(logFile))
+                fileName = logFile.name
+            }
+            message.setContent(MimeMultipart().also {
+                it.addBodyPart(textPart)
+                if (logFile.exists()) it.addBodyPart(attachPart)
+            })
+
+            Transport.send(message)
+            log("Test report emailed to kaimeng@proxxiband.com.")
+        } catch (e: Exception) {
+            log("Failed to send email: ${e.message}")
         }
     }
 

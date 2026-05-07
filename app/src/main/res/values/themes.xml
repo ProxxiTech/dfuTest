@@ -7,4 +7,24 @@
         <!-- Customize your light theme here. -->
         <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
     </style>
+
+    <!-- Compact outlined button: used for inline secondary actions (Rescan / Change) -->
+    <style name="Widget.App.Button.Compact.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">28dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingStart">10dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- Compact text button: used for low-emphasis actions (Select File, New Test, Share Log) -->
+    <style name="Widget.App.Button.Compact.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">28dp</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:textSize">12sp</item>
+    </style>
 </resources>

@@ -27,6 +27,7 @@ import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.google.android.material.slider.Slider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -61,7 +62,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var buttonShareLog: Button
     private lateinit var buttonNewTest: Button
     private lateinit var buttonRescan: Button
+    private lateinit var buttonResetBt: Button
     private lateinit var labelDevices: TextView
+    private lateinit var sliderDelay: Slider
+    private lateinit var textDelayLabel: TextView
     private lateinit var progressBarDfu: LinearProgressIndicator
     private lateinit var textIterationStatus: TextView
     private lateinit var textDfuStatus: TextView
@@ -165,11 +169,19 @@ class MainActivity : AppCompatActivity() {
         buttonShareLog = findViewById(R.id.button_share_log)
         buttonNewTest = findViewById(R.id.button_new_test)
         buttonRescan = findViewById(R.id.button_rescan)
+        buttonResetBt = findViewById(R.id.button_reset_bt)
         progressBarDfu = findViewById(R.id.progress_bar_dfu)
         textIterationStatus = findViewById(R.id.text_iteration_status)
         textDfuStatus = findViewById(R.id.text_dfu_status)
         pieChart = findViewById(R.id.pie_chart)
         textPieLegend = findViewById(R.id.text_pie_legend)
+        sliderDelay = findViewById(R.id.slider_delay)
+        textDelayLabel = findViewById(R.id.text_delay_label)
+
+        sliderDelay.addOnChangeListener { _, value, _ ->
+            val mins = value.toInt()
+            textDelayLabel.text = "Delay between DFU: $mins min"
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -216,6 +228,8 @@ class MainActivity : AppCompatActivity() {
             expandDeviceSection()
             startScan()
         }
+
+        buttonResetBt.setOnClickListener { resetBluetooth() }
     }
 
     private fun onStartStopTestClicked() {
@@ -232,6 +246,7 @@ class MainActivity : AppCompatActivity() {
             val firmwareFile = cachedFirmwareFile
             val iterations = editTextIterations.text.toString().toIntOrNull() ?: 10
             val timeout = editTextTimeout.text.toString().toLongOrNull() ?: 120
+            val delayMinutes = sliderDelay.value.toInt()
 
             if (device == null) {
                 Toast.makeText(this, "Please select a target device.", Toast.LENGTH_SHORT).show()
@@ -249,7 +264,7 @@ class MainActivity : AppCompatActivity() {
                     startService(intent)
                 }
             }
-            service.startTest(device.name, device.address, firmwareFile, iterations, timeout)
+            service.startTest(device.name, device.address, firmwareFile, iterations, timeout, delayMinutes)
         }
     }
 
@@ -305,6 +320,7 @@ class MainActivity : AppCompatActivity() {
                         buttonSelectFile.isEnabled = !isRunning
                         editTextIterations.isEnabled = !isRunning
                         editTextTimeout.isEnabled = !isRunning
+                        sliderDelay.isEnabled = !isRunning
                         devicesRecyclerView.isEnabled = !isRunning
                         buttonRescan.isEnabled = !isRunning
 
@@ -327,7 +343,12 @@ class MainActivity : AppCompatActivity() {
                 launch {
                     viewModel.dfuIterationProgress.collect { percent ->
                         progressBarDfu.progress = percent
-                        textDfuStatus.text = "Upload: $percent%"
+                    }
+                }
+
+                launch {
+                    viewModel.dfuStatusText.collect { text ->
+                        textDfuStatus.text = text
                     }
                 }
 
@@ -457,6 +478,35 @@ class MainActivity : AppCompatActivity() {
             dest
         } catch (e: Exception) {
             null
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun resetBluetooth() {
+        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val adapter = bluetoothManager.adapter ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ blocks programmatic toggle — guide user to do it manually
+            Toast.makeText(
+                this,
+                "Please toggle Bluetooth off and on in Settings to reset the BLE stack.",
+                Toast.LENGTH_LONG
+            ).show()
+            startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+        } else {
+            @Suppress("DEPRECATION")
+            adapter.disable()
+            Toast.makeText(this, "Resetting Bluetooth…", Toast.LENGTH_SHORT).show()
+            buttonResetBt.isEnabled = false
+            buttonResetBt.postDelayed({
+                @Suppress("DEPRECATION")
+                adapter.enable()
+                buttonResetBt.postDelayed({
+                    buttonResetBt.isEnabled = true
+                    startScan()
+                }, 3000)
+            }, 2000)
         }
     }
 

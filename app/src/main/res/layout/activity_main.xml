@@ -22,6 +22,17 @@
         app:layout_constraintBottom_toBottomOf="@id/button_rescan"/>
 
     <Button
+        android:id="@+id/button_reset_bt"
+        style="@style/Widget.App.Button.Compact.Outlined"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Reset BT"
+        android:layout_marginEnd="4dp"
+        android:layout_marginTop="6dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/button_rescan"/>
+
+    <Button
         android:id="@+id/button_rescan"
         style="@style/Widget.App.Button.Compact.Outlined"
         android:layout_width="wrap_content"
@@ -110,7 +121,35 @@
             android:text="120"/>
     </com.google.android.material.textfield.TextInputLayout>
 
-    <!-- Row 5: start/stop button -->
+    <!-- Row 5: inter-iteration delay slider -->
+    <TextView
+        android:id="@+id/text_delay_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Delay between DFU: 1 min"
+        android:textSize="12sp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginTop="6dp"
+        app:layout_constraintTop_toBottomOf="@id/layout_iterations"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/slider_delay"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:valueFrom="1"
+        android:valueTo="10"
+        android:stepSize="1"
+        android:value="1"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        app:layout_constraintTop_toBottomOf="@id/text_delay_label"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <!-- Row 6: start/stop button -->
     <Button
         android:id="@+id/button_start_stop_test"
         android:layout_width="0dp"
@@ -118,8 +157,8 @@
         android:text="Start Test"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
-        android:layout_marginTop="6dp"
-        app:layout_constraintTop_toBottomOf="@id/layout_iterations"
+        android:layout_marginTop="4dp"
+        app:layout_constraintTop_toBottomOf="@id/slider_delay"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 

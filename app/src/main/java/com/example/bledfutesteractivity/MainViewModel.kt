@@ -27,6 +27,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _scannedDevices = MutableStateFlow<List<ScanResult>>(emptyList())
     private val _selectedFileUri = MutableStateFlow<Uri?>(null)
     private val _dfuIterationProgress = MutableStateFlow(0)
+    private val _dfuStatusText = MutableStateFlow("Upload: 0%")
     private val _successCount = MutableStateFlow(0)
     private val _failCount = MutableStateFlow(0)
     private val _totalIterations = MutableStateFlow(0)
@@ -39,6 +40,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val scannedDevices = _scannedDevices.asStateFlow()
     val selectedFileUri = _selectedFileUri.asStateFlow()
     val dfuIterationProgress = _dfuIterationProgress.asStateFlow()
+    val dfuStatusText = _dfuStatusText.asStateFlow()
     val successCount = _successCount.asStateFlow()
     val failCount = _failCount.asStateFlow()
     val totalIterations = _totalIterations.asStateFlow()
@@ -78,6 +80,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch { service.testProgress.collect { _testProgress.value = it } }
             launch { service.isTestRunning.collect { _isTestRunning.value = it } }
             launch { service.dfuIterationProgress.collect { _dfuIterationProgress.value = it } }
+            launch { service.dfuStatusText.collect { _dfuStatusText.value = it } }
             launch { service.successCountFlow.collect { _successCount.value = it } }
             launch { service.failCountFlow.collect { _failCount.value = it } }
             launch { service.totalIterationsFlow.collect { _totalIterations.value = it } }
@@ -125,6 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetStats() {
         _dfuIterationProgress.value = 0
+        _dfuStatusText.value = "Upload: 0%"
         _successCount.value = 0
         _failCount.value = 0
         _totalIterations.value = 0

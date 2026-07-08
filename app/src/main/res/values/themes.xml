@@ -18,7 +18,7 @@
         <item name="android:textSize">12sp</item>
     </style>
 
-    <!-- Compact text button: used for low-emphasis actions (Select File, New Test, Share Log) -->
+    <!-- Compact text button: used for low-emphasis actions (New Test, Share Log) -->
     <style name="Widget.App.Button.Compact.Text" parent="Widget.Material3.Button.TextButton">
         <item name="android:minHeight">28dp</item>
         <item name="android:paddingTop">0dp</item>
@@ -26,5 +26,15 @@
         <item name="android:paddingStart">8dp</item>
         <item name="android:paddingEnd">8dp</item>
         <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- Larger, prominent button for the primary "pick firmware" action -->
+    <style name="Widget.App.Button.SelectFile" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:textSize">16sp</item>
     </style>
 </resources>

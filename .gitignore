@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Gradle build output in any module (e.g. dfu-forked/build)
+build/
+
+# Debug capture artifacts (large; not source of truth)
+*.logcat
+/logs/

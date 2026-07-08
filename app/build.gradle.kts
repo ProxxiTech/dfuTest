@@ -52,8 +52,6 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
 
     // DFU Tester App specific dependencies
-    implementation(libs.nordic.dfu)
-    implementation(libs.nordic.ble)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -61,6 +59,8 @@ dependencies {
     implementation(libs.androidx.activity.ktx) // Provides by viewModels()
     implementation(libs.android.mail)
     implementation(libs.android.activation)
+    // Vendored fork of no.nordicsemi.android:dfu:2.8.0 with a fast-fail/fast-retry connect().
+    implementation(project(":dfu-forked"))
 
     // Testing dependencies
     testImplementation(libs.junit)

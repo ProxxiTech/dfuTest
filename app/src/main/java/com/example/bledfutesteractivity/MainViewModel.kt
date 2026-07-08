@@ -60,11 +60,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
-            if (result.device.name!= null) {
-                if (!scanResults.containsKey(result.device.address)) {
-                    scanResults[result.device.address] = result
-                    _scannedDevices.value = scanResults.values.toList()
-                }
+            val name = result.device.name ?: return
+            if (!name.equals("PROXXI", ignoreCase = true) &&
+                !name.equals("DFUTARG", ignoreCase = true)) return
+            if (!scanResults.containsKey(result.device.address)) {
+                scanResults[result.device.address] = result
+                _scannedDevices.value = scanResults.values.toList()
             }
         }
         override fun onScanFailed(errorCode: Int) {

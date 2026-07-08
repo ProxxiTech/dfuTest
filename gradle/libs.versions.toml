@@ -7,8 +7,6 @@ junitVersion = "1.2.1"
 espressoCore = "3.6.1"
 
 # Versions for the DFU Tester App
-nordicDfu = "2.9.0"
-nordicBle = "2.10.2"
 coroutines = "1.8.0"
 lifecycle = "2.8.1"
 material = "1.12.0"
@@ -17,6 +15,7 @@ activityKtx = "1.9.0"
 appcompat = "1.7.1"
 constraintlayout = "2.2.0"
 androidMail = "1.6.7"
+nordicDfu = "2.5.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -25,8 +24,6 @@ androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "j
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 
 # Libraries for the DFU Tester App (View System)
-nordic-dfu = { group = "no.nordicsemi.android", name = "dfu", version.ref = "nordicDfu" }
-nordic-ble = { group = "no.nordicsemi.android", name = "ble", version.ref = "nordicBle" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
@@ -37,7 +34,9 @@ androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 android-mail = { group = "com.sun.mail", name = "android-mail", version.ref = "androidMail" }
 android-activation = { group = "com.sun.mail", name = "android-activation", version.ref = "androidMail" }
+nordic-dfu = { group = "no.nordicsemi.android", name = "dfu", version.ref = "nordicDfu" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

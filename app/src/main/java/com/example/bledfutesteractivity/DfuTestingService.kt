@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package com.example.bledfutesteractivity
 
 import android.annotation.SuppressLint
@@ -5,10 +7,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -22,7 +21,9 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import no.nordicsemi.android.dfu.*
+import no.nordicsemi.android.dfu.DfuProgressListenerAdapter
+import no.nordicsemi.android.dfu.DfuServiceInitiator
+import no.nordicsemi.android.dfu.DfuServiceListenerHelper
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -37,7 +38,6 @@ import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeBodyPart
 import javax.mail.internet.MimeMessage
 import javax.mail.internet.MimeMultipart
-import kotlin.coroutines.resume
 import kotlin.coroutines.coroutineContext
 
 class DfuTestingService : Service() {
@@ -46,27 +46,27 @@ class DfuTestingService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
-    val logMessages = MutableStateFlow("")
-    val testProgress = MutableStateFlow(0)
-    val isTestRunning = MutableStateFlow(false)
-    val dfuIterationProgress = MutableStateFlow(0)
-    val dfuStatusText = MutableStateFlow("Upload: 0%")
-    val successCountFlow = MutableStateFlow(0)
-    val failCountFlow = MutableStateFlow(0)
-    val totalIterationsFlow = MutableStateFlow(0)
-    val currentIterationFlow = MutableStateFlow(0)
+    val logMessages            = MutableStateFlow("")
+    val testProgress           = MutableStateFlow(0)
+    val isTestRunning          = MutableStateFlow(false)
+    val dfuIterationProgress   = MutableStateFlow(0)
+    val dfuStatusText          = MutableStateFlow("Upload: 0%")
+    val successCountFlow       = MutableStateFlow(0)
+    val failCountFlow          = MutableStateFlow(0)
+    val totalIterationsFlow    = MutableStateFlow(0)
+    val currentIterationFlow   = MutableStateFlow(0)
 
     private var successCount = 0
-    private var failCount = 0
+    private var failCount    = 0
     private var testJob: Job? = null
 
-    @Volatile private var preConnectedGatt: BluetoothGatt? = null
-
-    private var testDeviceName: String? = null
+    private var testDeviceName: String?  = null
     private var testDeviceAddress: String = ""
     private var testFirmwareFileName: String = ""
 
     private lateinit var notificationManager: NotificationManager
+
+    // ─── Service lifecycle ───────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
@@ -74,13 +74,10 @@ class DfuTestingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = createNotification("DFU Stress Test is running...")
+        val notification = createNotification("DFU Stress Test is running…")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            )
+            startForeground(NOTIFICATION_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -88,38 +85,43 @@ class DfuTestingService : Service() {
     }
 
     override fun onBind(intent: Intent): IBinder = binder
-
-    override fun onDestroy() {
-        super.onDestroy()
-        serviceJob.cancel()
-    }
+    override fun onDestroy() { super.onDestroy(); serviceJob.cancel() }
 
     inner class DfuBinder : Binder() {
         fun getService(): DfuTestingService = this@DfuTestingService
     }
 
-    fun startTest(deviceName: String?, deviceAddress: String, firmwareFile: File, iterations: Int, timeoutSeconds: Long, interIterationDelayMinutes: Int = 1) {
+    // ─── Public API ──────────────────────────────────────────────────────────
+
+    fun startTest(
+        deviceName: String?,
+        deviceAddress: String,
+        firmwareFile: File,
+        iterations: Int,
+        timeoutSeconds: Long,
+        interIterationDelayMinutes: Int = 1
+    ) {
         if (isTestRunning.value) return
 
-        testDeviceName = deviceName
-        testDeviceAddress = deviceAddress
+        testDeviceName       = deviceName
+        testDeviceAddress    = deviceAddress
         testFirmwareFileName = firmwareFile.name
 
         testJob = serviceScope.launch {
             try {
-                isTestRunning.value = true
-                totalIterationsFlow.value = iterations
-                successCountFlow.value = 0
-                failCountFlow.value = 0
-                currentIterationFlow.value = 0
-                dfuIterationProgress.value = 0
+                isTestRunning.value         = true
+                totalIterationsFlow.value   = iterations
+                successCountFlow.value      = 0
+                failCountFlow.value         = 0
+                currentIterationFlow.value  = 0
+                dfuIterationProgress.value  = 0
                 setupLogFile()
                 runTestLoop(deviceAddress, firmwareFile, iterations, timeoutSeconds, interIterationDelayMinutes)
             } finally {
-                isTestRunning.value = false
+                isTestRunning.value        = false
                 currentIterationFlow.value = 0
                 dfuIterationProgress.value = 0
-                log("Test session ended. Final Score -> Success: $successCount, Fail: $failCount")
+                log("Test session ended. Final Score → Success: $successCount, Fail: $failCount")
                 sendTestReport()
                 @Suppress("DEPRECATION")
                 stopForeground(true)
@@ -133,6 +135,8 @@ class DfuTestingService : Service() {
         log("Test manually stopped by user.")
     }
 
+    // ─── Test loop ───────────────────────────────────────────────────────────
+
     private suspend fun runTestLoop(
         initialDeviceAddress: String,
         firmwareFile: File,
@@ -142,16 +146,16 @@ class DfuTestingService : Service() {
     ) {
         var currentDeviceAddress = initialDeviceAddress
         successCount = 0
-        failCount = 0
+        failCount    = 0
 
         for (i in 1..iterations) {
             coroutineContext.ensureActive()
 
             currentIterationFlow.value = i
             dfuIterationProgress.value = 0
-            dfuStatusText.value = "Upload: 0%"
+            dfuStatusText.value        = "Upload: 0%"
 
-            log("--- Starting DFU Iteration ${i}/${iterations} on device ${currentDeviceAddress} ---")
+            log("--- Starting DFU Iteration $i/$iterations on device $currentDeviceAddress ---")
             updateNotificationProgress(i, iterations)
 
             val dfuResult = performDfuWithTimeout(currentDeviceAddress, firmwareFile, timeoutSeconds)
@@ -159,39 +163,38 @@ class DfuTestingService : Service() {
             if (dfuResult) {
                 successCount++
                 successCountFlow.value = successCount
-                log("DFU Iteration ${i} SUCCESSFUL.")
+                log("DFU Iteration $i SUCCESSFUL.")
             } else {
                 failCount++
                 failCountFlow.value = failCount
-                log("DFU Iteration ${i} FAILED.")
+                log("DFU Iteration $i FAILED.")
             }
 
             testProgress.value = (i * 100) / iterations
 
             if (i < iterations) {
                 coroutineContext.ensureActive()
-                log("Waiting $interIterationDelayMinutes minute(s) before next scan...")
+                log("Waiting $interIterationDelayMinutes minute(s) before next scan…")
                 val totalWaitMs = interIterationDelayMinutes * 60_000L
                 var elapsed = 0L
                 while (elapsed < totalWaitMs) {
                     coroutineContext.ensureActive()
-                    val remaining = totalWaitMs - elapsed
+                    val remaining     = totalWaitMs - elapsed
                     val remainingMins = remaining / 60_000
                     val remainingSecs = (remaining % 60_000) / 1_000
-                    dfuStatusText.value = "Next DFU in: ${remainingMins}m ${remainingSecs}s"
+                    dfuStatusText.value        = "Next DFU in: ${remainingMins}m ${remainingSecs}s"
                     dfuIterationProgress.value = ((elapsed * 100) / totalWaitMs).toInt()
                     delay(1_000L)
                     elapsed += 1_000L
                 }
                 dfuIterationProgress.value = 0
-                dfuStatusText.value = "Upload: 0%"
+                dfuStatusText.value        = "Upload: 0%"
 
-                log("Re-scanning for device (last known address: $currentDeviceAddress)...")
+                log("Re-scanning for device (last known address: $currentDeviceAddress)…")
                 val foundDevice = findDeviceAfterDfu(currentDeviceAddress)
-
-                if (foundDevice!= null) {
+                if (foundDevice != null) {
                     currentDeviceAddress = foundDevice.address
-                    log("Device found at new address: ${currentDeviceAddress}. Proceeding.")
+                    log("Device found at new address: $currentDeviceAddress. Proceeding.")
                 } else {
                     log("CRITICAL: Could not find device within 5 minutes. Stopping test.")
                     break
@@ -200,208 +203,197 @@ class DfuTestingService : Service() {
         }
     }
 
-    private suspend fun performDfuWithTimeout(address: String, firmwareFile: File, timeoutSeconds: Long): Boolean {
-        repeat(3) { attempt ->
-            if (attempt > 0) {
-                log("Retrying DFU (attempt ${attempt + 1}/3) after error, waiting for connectable window...")
-                delay(2_000)
-            }
-            waitUntilConnectable(address)
-            coroutineContext.ensureActive()
-            val outcome = try {
-                withTimeout(timeoutSeconds * 1000) { initiateDfu(address, firmwareFile) }
-            } catch (e: TimeoutCancellationException) {
-                log("DFU timed out after $timeoutSeconds seconds.")
-                return false
-            } catch (e: Exception) {
-                log("An unexpected error occurred during DFU: ${e.message}")
-                return false
-            }
-            when (outcome) {
-                true  -> return true
-                false -> return false
-                null  -> { /* GATT error 133 — loop will retry once */ }
-            }
-        }
-        log("DFU failed after 3 attempts.")
-        return false
+    // ─── DFU via Nordic library ───────────────────────────────────────────────
+
+    private suspend fun performDfuWithTimeout(
+        address: String,
+        firmwareFile: File,
+        timeoutSeconds: Long
+    ): Boolean = try {
+        withTimeout(timeoutSeconds * 1_000) { initiateDfu(address, firmwareFile) }
+    } catch (e: TimeoutCancellationException) {
+        log("DFU timed out after $timeoutSeconds seconds.")
+        false
+    } catch (e: Exception) {
+        log("Unexpected error during DFU: ${e.message}")
+        false
     }
 
-    // Returns true = success, false = non-retryable failure, null = GATT error 133 (retryable)
-    private suspend fun initiateDfu(address: String, firmwareFile: File): Boolean? =
-        suspendCancellableCoroutine { continuation ->
-            val progressListener = object : DfuProgressListenerAdapter() {
-                override fun onDfuCompleted(deviceAddress: String) {
-                    if (continuation.isActive) continuation.resume(true)
-                }
+    /**
+     * Drives a single DFU transfer via [DfuServiceInitiator] and suspends until
+     * [DfuProgressListenerAdapter] fires onDfuCompleted / onDfuAborted / onError.
+     * Must run on the main dispatcher so LocalBroadcastManager delivers callbacks here.
+     */
+    private suspend fun initiateDfu(address: String, firmwareFile: File): Boolean {
+        // ── Pre-DFU: connect with our OWN GATT, read device info, and HOLD the link open ──
+        // A second connectGatt from the same app to an already-connected device attaches to the
+        // existing ACL link instead of a fresh (flaky) cold connect, so holding this open across
+        // DfuServiceInitiator.start() lets the DFU library reuse the link and sidestep the
+        // app-mode connection-establishment failures (HCI 0x3E / GATT 133). Best-effort: if the
+        // pre-connect fails, we fall back to letting the DFU library connect on its own.
+        val (heldGatt, info) = DeviceInfoReader(applicationContext) { msg -> log(msg) }
+            .connectReadAndHold(address)
+        if (heldGatt != null) log("Pre-DFU device info — ${info.summary()}")
+        else log("Pre-DFU own-GATT connect failed; the DFU library will connect on its own.")
 
-                override fun onError(deviceAddress: String, error: Int, errorType: Int, message: String?) {
-                    log("DFU Error: $message (Code: $error)")
-                    preConnectedGatt?.close()
-                    preConnectedGatt = null
-                    val result: Boolean? = if (error == 133) null else false
-                    if (continuation.isActive) continuation.resume(result)
-                }
-
-                override fun onDfuAborted(deviceAddress: String) {
-                    log("DFU Aborted.")
-                    preConnectedGatt?.close()
-                    preConnectedGatt = null
-                    if (continuation.isActive) continuation.resume(false)
-                }
-                override fun onProgressChanged(deviceAddress: String, percent: Int, speed: Float, avgSpeed: Float, currentPart: Int, partsTotal: Int) {
-                    dfuIterationProgress.value = percent
-                    dfuStatusText.value = "Upload: $percent%"
-                }
-                override fun onDeviceConnecting(deviceAddress: String) {
-                    log("Connecting to DFU target...")
-                    // DFU library has the GATT connection — release our pre-connection handle.
-                    // The ACL link stays up because the library holds its own GATT client.
-                    preConnectedGatt?.close()
-                    preConnectedGatt = null
-                }
-                override fun onDfuProcessStarting(deviceAddress: String) { log("DFU process starting...") }
-                override fun onEnablingDfuMode(deviceAddress: String) { log("Enabling DFU mode...") }
-                override fun onFirmwareValidating(deviceAddress: String) { log("Validating firmware...") }
-                override fun onDeviceDisconnecting(deviceAddress: String) { log("Disconnecting...") }
-            }
-
-            DfuServiceListenerHelper.registerProgressListener(this, progressListener, address)
-
-            val starter = DfuServiceInitiator(address)
-                .setKeepBond(false)
-                .setUnsafeExperimentalButtonlessServiceInSecureDfuEnabled(true)
-                .setRebootTime(2000)       // wait 2 s after disconnect before scanning for bootloader
-                .setScanTimeout(15_000)    // scan up to 15 s for the bootloader (default is 5 s)
-                .setZip(firmwareFile.absolutePath)
-
-            val controller = starter.start(this, DfuService::class.java)
-
-            continuation.invokeOnCancellation {
-                log("Dfu coroutine cancelled. Aborting DFU.")
-                controller.abort()
-                DfuServiceListenerHelper.unregisterProgressListener(this, progressListener)
-                preConnectedGatt?.close()
-                preConnectedGatt = null
+        val released = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun releaseHeldGatt() {
+            if (heldGatt != null && released.compareAndSet(false, true)) {
+                runCatching { heldGatt.close() }
             }
         }
 
-    @SuppressLint("MissingPermission")
-    private suspend fun waitUntilConnectable(address: String) {
-        val leScanner = (getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter.bluetoothLeScanner
-        var loggedOnce = false
-        withTimeoutOrNull(5 * 60 * 1000L) {
-            suspendCancellableCoroutine { continuation ->
-                val scanCallback = object : ScanCallback() {
-                    override fun onScanResult(callbackType: Int, result: ScanResult) {
-                        val connectable = Build.VERSION.SDK_INT < Build.VERSION_CODES.O || result.isConnectable
-                        if (connectable) {
-                            leScanner.stopScan(this)
-                            // Grab the connection slot immediately from the scan callback thread,
-                            // before any coroutine dispatch or iOS can issue its own connect.
-                            preConnectedGatt?.close()
-                            preConnectedGatt = result.device.connectGatt(
-                                this@DfuTestingService, false,
-                                object : BluetoothGattCallback() {}
-                            )
-                            if (continuation.isActive) continuation.resume(Unit)
-                        } else if (!loggedOnce) {
-                            loggedOnce = true
-                            log("Device is advertising but not connectable (busy with another connection). Waiting...")
-                        }
+        return withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { cont ->
+                val listener = object : DfuProgressListenerAdapter() {
+                    override fun onDeviceConnecting(deviceAddress: String) {
+                        log("Connecting to $deviceAddress…")
+                        dfuStatusText.value = "Connecting…"
                     }
-                    override fun onScanFailed(errorCode: Int) {
-                        if (continuation.isActive) continuation.resume(Unit)
+                    override fun onDeviceConnected(deviceAddress: String) {
+                        log("Connected to $deviceAddress")
+                        // DFU library has attached to our held ACL — release our GATT now.
+                        releaseHeldGatt()
+                    }
+                    override fun onDfuProcessStarted(deviceAddress: String) {
+                        log("DFU process started on $deviceAddress")
+                        dfuStatusText.value = "DFU started…"
+                    }
+                    override fun onEnablingDfuMode(deviceAddress: String) {
+                        log("Enabling DFU mode on $deviceAddress…")
+                        dfuStatusText.value = "Entering bootloader…"
+                    }
+                    override fun onFirmwareValidating(deviceAddress: String) {
+                        log("Validating firmware…")
+                        dfuStatusText.value = "Validating…"
+                    }
+                    override fun onDeviceDisconnecting(deviceAddress: String?) {
+                        log("Disconnecting from ${deviceAddress ?: "device"}…")
+                    }
+                    override fun onDeviceDisconnected(deviceAddress: String) {
+                        log("Disconnected from $deviceAddress")
+                    }
+                    override fun onProgressChanged(
+                        deviceAddress: String, percent: Int,
+                        speed: Float, avgSpeed: Float,
+                        currentPart: Int, partsTotal: Int
+                    ) {
+                        dfuIterationProgress.value = percent
+                        dfuStatusText.value = "Upload: $percent% (${String.format("%.1f", avgSpeed)} kB/s)"
+                    }
+                    override fun onDfuCompleted(deviceAddress: String) {
+                        log("DFU completed successfully on $deviceAddress")
+                        releaseHeldGatt()
+                        DfuServiceListenerHelper.unregisterProgressListener(this@DfuTestingService, this)
+                        if (cont.isActive) cont.resumeWith(Result.success(true))
+                    }
+                    override fun onDfuAborted(deviceAddress: String) {
+                        log("DFU aborted on $deviceAddress")
+                        releaseHeldGatt()
+                        DfuServiceListenerHelper.unregisterProgressListener(this@DfuTestingService, this)
+                        if (cont.isActive) cont.resumeWith(Result.success(false))
+                    }
+                    override fun onError(deviceAddress: String, error: Int, errorType: Int, message: String?) {
+                        log("DFU error on $deviceAddress: $message (code=$error, type=$errorType)")
+                        releaseHeldGatt()
+                        DfuServiceListenerHelper.unregisterProgressListener(this@DfuTestingService, this)
+                        if (cont.isActive) cont.resumeWith(Result.success(false))
                     }
                 }
-                val filters = listOf(ScanFilter.Builder().setDeviceAddress(address).build())
-                val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-                leScanner.startScan(filters, settings, scanCallback)
-                continuation.invokeOnCancellation {
-                    leScanner.stopScan(scanCallback)
-                    preConnectedGatt?.close()
-                    preConnectedGatt = null
+
+                DfuServiceListenerHelper.registerProgressListener(this@DfuTestingService, listener)
+
+                val controller = DfuServiceInitiator(address)
+                    .setDeviceName(testDeviceName)
+                    .setKeepBond(false)
+                    .setForceDfu(false)
+                    .setUnsafeExperimentalButtonlessServiceInSecureDfuEnabled(true)
+                    .setNumberOfRetries(3)
+                    .setRebootTime(2_000)
+                    // Packet Receipt Notifications: the device acks every N data packets, pacing the
+                    // transfer and keeping periodic bidirectional traffic on the link. Improves
+                    // reliability on marginal links (helps avoid the mid-transfer supervision-timeout
+                    // drops seen on the T811). Trade-off: slightly slower upload. Tune the value if needed.
+                    .setPacketsReceiptNotificationsEnabled(true)
+                    .setPacketsReceiptNotificationsValue(12)
+                    .setZip(firmwareFile.absolutePath)
+                    .start(this@DfuTestingService, DfuService::class.java)
+
+                cont.invokeOnCancellation {
+                    releaseHeldGatt()
+                    DfuServiceListenerHelper.unregisterProgressListener(this@DfuTestingService, listener)
+                    controller.abort()
                 }
             }
-        } ?: log("Timed out waiting for connectable advertisement, proceeding anyway.")
+        }
     }
+
+    // ─── Inter-iteration device re-scan ──────────────────────────────────────
 
     @SuppressLint("MissingPermission")
     private suspend fun findDeviceAfterDfu(lastKnownAddress: String): BluetoothDevice? {
-        return withTimeoutOrNull(5 * 60 * 1000) {
+        return withTimeoutOrNull(5 * 60 * 1_000) {
             suspendCancellableCoroutine { continuation ->
-                val leScanner = (getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter.bluetoothLeScanner
-                var deviceFound = false
+                val leScanner = (getSystemService(Context.BLUETOOTH_SERVICE)
+                        as android.bluetooth.BluetoothManager).adapter.bluetoothLeScanner
+                var deviceFound        = false
                 var loggedNonConnectable = false
 
                 val scanCallback = object : ScanCallback() {
                     override fun onScanResult(callbackType: Int, result: ScanResult) {
-                        val connectable = Build.VERSION.SDK_INT < Build.VERSION_CODES.O || result.isConnectable
+                        val connectable = Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                                || result.isConnectable
                         if (!connectable) {
                             if (!loggedNonConnectable) {
                                 loggedNonConnectable = true
-                                log("Device found at ${result.device.address} but not connectable. Waiting...")
+                                log("Device found at ${result.device.address} but not connectable. Waiting…")
                             }
                             return
                         }
                         if (!deviceFound) {
                             deviceFound = true
                             leScanner.stopScan(this)
-                            if (continuation.isActive) continuation.resume(result.device)
+                            if (continuation.isActive) continuation.resume(result.device, onCancellation = null)
                         }
                     }
                     override fun onScanFailed(errorCode: Int) {
-                        log("Scan failed with error code: $errorCode")
-                        if (continuation.isActive) continuation.resume(null)
+                        log("Re-scan failed with error code: $errorCode")
+                        if (continuation.isActive) continuation.resume(null, onCancellation = null)
                     }
                 }
 
-                val filters = mutableListOf(ScanFilter.Builder().setDeviceAddress(lastKnownAddress).build())
-
-                getIncrementedMacAddress(lastKnownAddress)?.let {
+                val filters = mutableListOf(
+                    ScanFilter.Builder().setDeviceAddress(lastKnownAddress).build()
+                )
+                macIncrement(lastKnownAddress, +1)?.let {
                     log("Also scanning for incremented address: $it")
                     filters.add(ScanFilter.Builder().setDeviceAddress(it).build())
                 }
-                getDecrementedMacAddress(lastKnownAddress)?.let {
+                macIncrement(lastKnownAddress, -1)?.let {
                     log("Also scanning for decremented address: $it")
                     filters.add(ScanFilter.Builder().setDeviceAddress(it).build())
                 }
 
-                val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+                val settings = ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
                 leScanner.startScan(filters, settings, scanCallback)
-
-                continuation.invokeOnCancellation {
-                    leScanner.stopScan(scanCallback)
-                }
+                continuation.invokeOnCancellation { leScanner.stopScan(scanCallback) }
             }
         }
     }
 
-    private fun getIncrementedMacAddress(macAddress: String): String? {
-        return try {
-            val macAsLong = macAddress.replace(":", "").toLong(16)
-            val incrementedMac = String.format("%012X", macAsLong + 1)
-            incrementedMac.chunked(2).joinToString(":")
-        } catch (e: NumberFormatException) {
-            null
-        }
-    }
+    private fun macIncrement(mac: String, delta: Int): String? = try {
+        val v = mac.replace(":", "").toLong(16) + delta
+        String.format("%012X", v).chunked(2).joinToString(":")
+    } catch (_: Exception) { null }
 
-    private fun getDecrementedMacAddress(macAddress: String): String? {
-        return try {
-            val macAsLong = macAddress.replace(":", "").toLong(16)
-            val decrementedMac = String.format("%012X", macAsLong - 1)
-            decrementedMac.chunked(2).joinToString(":")
-        } catch (e: NumberFormatException) {
-            null
-        }
-    }
+    // ─── Email report ─────────────────────────────────────────────────────────
 
     private fun sendTestReport() {
-        val logFile = File(File(cacheDir, "logs"), "dfu_stress_test_log.txt")
+        val logFile     = File(File(cacheDir, "logs"), "dfu_stress_test_log.txt")
         val deviceLabel = if (testDeviceName != null) "$testDeviceName ($testDeviceAddress)" else testDeviceAddress
-        val subject = "DFU Stress Test Report – $deviceLabel"
-        val body = """
+        val subject     = "DFU Stress Test Report – $deviceLabel"
+        val body        = """
             DFU Stress Test completed.
 
             Device:   $deviceLabel
@@ -417,10 +409,10 @@ class DfuTestingService : Service() {
 
         try {
             val props = Properties().apply {
-                put("mail.smtp.auth", "true")
+                put("mail.smtp.auth",            "true")
                 put("mail.smtp.starttls.enable", "true")
-                put("mail.smtp.host", "smtp.gmail.com")
-                put("mail.smtp.port", "587")
+                put("mail.smtp.host",            "smtp.gmail.com")
+                put("mail.smtp.port",            "587")
             }
             val session = Session.getInstance(props, object : javax.mail.Authenticator() {
                 override fun getPasswordAuthentication() =
@@ -433,10 +425,10 @@ class DfuTestingService : Service() {
                 setSubject(subject)
             }
 
-            val textPart = MimeBodyPart().apply { setText(body) }
+            val textPart   = MimeBodyPart().apply { setText(body) }
             val attachPart = MimeBodyPart().apply {
                 dataHandler = DataHandler(FileDataSource(logFile))
-                fileName = logFile.name
+                fileName    = logFile.name
             }
             message.setContent(MimeMultipart().also {
                 it.addBodyPart(textPart)
@@ -450,12 +442,12 @@ class DfuTestingService : Service() {
         }
     }
 
+    // ─── Logging ─────────────────────────────────────────────────────────────
+
     private fun setupLogFile() {
         val logDir = File(cacheDir, "logs")
-        if (!logDir.exists()) {
-            logDir.mkdirs()
-        }
-        val logFile = File(logDir, "dfu_stress_test_log.txt")
+        if (!logDir.exists()) logDir.mkdirs()
+        val logFile   = File(logDir, "dfu_stress_test_log.txt")
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
         logFile.writeText("DFU Stress Test Log - Session started at $timestamp\n\n")
         logMessages.value = ""
@@ -463,26 +455,22 @@ class DfuTestingService : Service() {
 
     private fun log(message: String) {
         val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-        val logEntry = "[$timestamp] $message\n"
+        val logEntry  = "[$timestamp] $message\n"
         logMessages.value += logEntry
-
-        // This robust approach ensures the file reference is always valid.
-        val logDir = File(cacheDir, "logs")
-        val logFile = File(logDir, "dfu_stress_test_log.txt")
-
+        val logFile = File(File(cacheDir, "logs"), "dfu_stress_test_log.txt")
         try {
-            // Synchronized block to prevent potential (though unlikely) concurrent write issues.
-            synchronized(this) {
-                logFile.appendText(logEntry)
-            }
+            synchronized(this) { logFile.appendText(logEntry) }
         } catch (e: IOException) {
             e.printStackTrace()
         }
     }
 
+    // ─── Notification ────────────────────────────────────────────────────────
+
     private fun createNotification(contentText: String): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "DFU Test Channel", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                CHANNEL_ID, "DFU Test Channel", NotificationManager.IMPORTANCE_LOW)
             notificationManager.createNotificationChannel(channel)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -494,12 +482,12 @@ class DfuTestingService : Service() {
     }
 
     fun updateNotificationProgress(current: Int, total: Int) {
-        val notification = createNotification("Running iteration $current of $total...")
+        val notification = createNotification("Running iteration $current of $total…")
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     companion object {
         private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "DfuTestServiceChannel"
+        private const val CHANNEL_ID      = "DfuTestServiceChannel"
     }
 }

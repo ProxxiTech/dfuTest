@@ -41,7 +41,6 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.launch
-import no.nordicsemi.android.dfu.DfuServiceInitiator
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -134,7 +133,6 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
         setupClickListeners()
         observeViewModel()
-        createDfuNotificationChannel()
         requestAllPermissions()
 
         updateStartButtonState()
@@ -459,12 +457,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return fileName
-    }
-
-    private fun createDfuNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            DfuServiceInitiator.createDfuNotificationChannel(this)
-        }
     }
 
     private fun copyFirmwareToCache(uri: Uri): File? {

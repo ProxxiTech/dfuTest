@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "BleDfuTesterActivity"
 include(":app")
+include(":dfu-forked")
  

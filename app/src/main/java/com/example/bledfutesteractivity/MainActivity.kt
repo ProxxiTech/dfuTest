@@ -27,7 +27,7 @@ import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import com.google.android.material.slider.Slider
+import com.google.android.material.slider.RangeSlider
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var buttonRescan: Button
     private lateinit var buttonResetBt: Button
     private lateinit var labelDevices: TextView
-    private lateinit var sliderDelay: Slider
+    private lateinit var sliderDelay: RangeSlider
     private lateinit var textDelayLabel: TextView
     private lateinit var progressBarDfu: LinearProgressIndicator
     private lateinit var textIterationStatus: TextView
@@ -176,10 +176,19 @@ class MainActivity : AppCompatActivity() {
         sliderDelay = findViewById(R.id.slider_delay)
         textDelayLabel = findViewById(R.id.text_delay_label)
 
-        sliderDelay.addOnChangeListener { _, value, _ ->
-            val mins = value.toInt()
-            textDelayLabel.text = "Delay between DFU: $mins min"
-        }
+        // Two-thumb range: user picks a min and max; each inter-iteration wait is a random value
+        // in [min, max].
+        sliderDelay.values = listOf(3f, 5f)
+        updateDelayLabel()
+        sliderDelay.addOnChangeListener { _, _, _ -> updateDelayLabel() }
+    }
+
+    private fun updateDelayLabel() {
+        val lo = sliderDelay.values.first().toInt()
+        val hi = sliderDelay.values.last().toInt()
+        textDelayLabel.text =
+            if (lo == hi) "Delay between DFU: $lo min"
+            else "Delay between DFU: $lo-$hi min (random)"
     }
 
     @SuppressLint("MissingPermission")
@@ -244,7 +253,8 @@ class MainActivity : AppCompatActivity() {
             val firmwareFile = cachedFirmwareFile
             val iterations = editTextIterations.text.toString().toIntOrNull() ?: 10
             val timeout = editTextTimeout.text.toString().toLongOrNull() ?: 120
-            val delayMinutes = sliderDelay.value.toInt()
+            val delayMin = sliderDelay.values.first().toInt()
+            val delayMax = sliderDelay.values.last().toInt()
 
             if (device == null) {
                 Toast.makeText(this, "Please select a target device.", Toast.LENGTH_SHORT).show()
@@ -262,7 +272,7 @@ class MainActivity : AppCompatActivity() {
                     startService(intent)
                 }
             }
-            service.startTest(device.name, device.address, firmwareFile, iterations, timeout, delayMinutes)
+            service.startTest(device.name, device.address, firmwareFile, iterations, timeout, delayMin, delayMax)
         }
     }
 

@@ -101,7 +101,8 @@ class DfuTestingService : Service() {
         firmwareFile: File,
         iterations: Int,
         timeoutSeconds: Long,
-        interIterationDelayMinutes: Int = 1
+        delayMinMinutes: Int = 1,
+        delayMaxMinutes: Int = 1
     ) {
         if (isTestRunning.value) return
 
@@ -118,7 +119,7 @@ class DfuTestingService : Service() {
                 currentIterationFlow.value  = 0
                 dfuIterationProgress.value  = 0
                 setupLogFile()
-                runTestLoop(deviceAddress, firmwareFile, iterations, timeoutSeconds, interIterationDelayMinutes)
+                runTestLoop(deviceAddress, firmwareFile, iterations, timeoutSeconds, delayMinMinutes, delayMaxMinutes)
             } finally {
                 isTestRunning.value        = false
                 currentIterationFlow.value = 0
@@ -144,7 +145,8 @@ class DfuTestingService : Service() {
         firmwareFile: File,
         iterations: Int,
         timeoutSeconds: Long,
-        interIterationDelayMinutes: Int
+        delayMinMinutes: Int,
+        delayMaxMinutes: Int
     ) {
         var currentDeviceAddress = initialDeviceAddress
         successCount = 0
@@ -176,8 +178,12 @@ class DfuTestingService : Service() {
 
             if (i < iterations) {
                 coroutineContext.ensureActive()
-                log("Waiting $interIterationDelayMinutes minute(s) before next scan…")
-                val totalWaitMs = interIterationDelayMinutes * 60_000L
+                val lo = minOf(delayMinMinutes, delayMaxMinutes)
+                val hi = maxOf(delayMinMinutes, delayMaxMinutes)
+                val waitMinutes = (lo..hi).random()   // random value in the selected window
+                if (lo == hi) log("Waiting $waitMinutes minute(s) before next scan…")
+                else log("Waiting $waitMinutes minute(s) (random in $lo-$hi) before next scan…")
+                val totalWaitMs = waitMinutes * 60_000L
                 var elapsed = 0L
                 while (elapsed < totalWaitMs) {
                     coroutineContext.ensureActive()

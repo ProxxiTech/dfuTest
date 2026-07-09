@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.android.activation)
     // Vendored fork of no.nordicsemi.android:dfu:2.8.0 with a fast-fail/fast-retry connect().
     implementation(project(":dfu-forked"))
+    // Nordic Kotlin BLE client — used only to validate the native→Kotlin ACL hand-off.
+    implementation(libs.nordic.ble.client)
 
     // Testing dependencies
     testImplementation(libs.junit)

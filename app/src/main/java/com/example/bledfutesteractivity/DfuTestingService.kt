@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import no.nordicsemi.android.dfu.DfuProgressListenerAdapter
 import no.nordicsemi.android.dfu.DfuServiceInitiator
 import no.nordicsemi.android.dfu.DfuServiceListenerHelper
+import no.nordicsemi.android.kotlin.ble.client.main.callback.ClientBleGatt
+import no.nordicsemi.android.kotlin.ble.core.data.BleGattConnectOptions
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -235,6 +237,28 @@ class DfuTestingService : Service() {
             .connectReadAndHold(address)
         if (heldGatt != null) log("Pre-DFU device info — ${info.summary()}")
         else log("Pre-DFU own-GATT connect failed; the DFU library will connect on its own.")
+
+        // ── ACL hand-off validation ──────────────────────────────────────────────
+        // With the native ACL held open, does the Nordic Kotlin client's connect attach WARM (fast)
+        // instead of a cold connect? This proves the pattern for production (which stays on the Kotlin
+        // client) without passing a native handle. A warm connect returns in ~ms; a timeout means the
+        // hand-off didn't work (and leaks one client — so if it fails, don't run many iterations).
+        if (heldGatt != null) {
+            val t0 = System.currentTimeMillis()
+            val kotlinGatt = withTimeoutOrNull(8_000L) {
+                ClientBleGatt.connect(
+                    applicationContext, address, serviceScope,
+                    options = BleGattConnectOptions(autoConnect = false),
+                )
+            }
+            if (kotlinGatt != null) {
+                log("ACL hand-off OK: ClientBleGatt connected WARM in ${System.currentTimeMillis() - t0} ms (autoConnect=false, native ACL held).")
+                runCatching { kotlinGatt.disconnect() }
+                runCatching { kotlinGatt.close() }
+            } else {
+                log("ACL hand-off FAILED: ClientBleGatt did not connect within 8s despite the held ACL.")
+            }
+        }
 
         val released = java.util.concurrent.atomic.AtomicBoolean(false)
         fun releaseHeldGatt() {

@@ -26,6 +26,26 @@ android {
             )
         }
     }
+
+    // Two installable variants (distinct applicationId) toggling the native→Kotlin ACL hand-off.
+    flavorDimensions += "mode"
+    productFlavors {
+        // AOSP-only connect: native warm-up + DFU library, NO Kotlin ClientBleGatt step.
+        // Equivalent to the fork-dfu-timeout baseline (100/100).
+        create("aosp") {
+            dimension = "mode"
+            applicationIdSuffix = ".aosp"
+            manifestPlaceholders["appLabel"] = "Proxxi DFU AOSP"
+            buildConfigField("boolean", "ACL_HANDOFF_ENABLED", "false")
+        }
+        // Adds the native→Kotlin ACL hand-off validation step (ClientBleGatt.connect).
+        create("handoff") {
+            dimension = "mode"
+            manifestPlaceholders["appLabel"] = "Proxxi DFU Handoff"
+            buildConfigField("boolean", "ACL_HANDOFF_ENABLED", "true")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -36,6 +56,7 @@ android {
     // This removes the need for the Compose build features
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
     packaging {
         resources {

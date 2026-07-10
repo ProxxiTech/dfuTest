@@ -249,7 +249,8 @@ class DfuTestingService : Service() {
         // instead of a cold connect? This proves the pattern for production (which stays on the Kotlin
         // client) without passing a native handle. A warm connect returns in ~ms; a timeout means the
         // hand-off didn't work (and leaks one client — so if it fails, don't run many iterations).
-        if (heldGatt != null) {
+        // Gated by the build flavor: only the "handoff" flavor runs this; "aosp" is the pure baseline.
+        if (BuildConfig.ACL_HANDOFF_ENABLED && heldGatt != null) {
             val t0 = System.currentTimeMillis()
             val kotlinGatt = withTimeoutOrNull(8_000L) {
                 ClientBleGatt.connect(

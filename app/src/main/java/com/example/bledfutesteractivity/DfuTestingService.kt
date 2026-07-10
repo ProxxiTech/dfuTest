@@ -73,6 +73,11 @@ class DfuTestingService : Service() {
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // The Nordic DFU library's DfuBaseService goes foreground on its own notification
+        // channel ("dfu"). If that channel doesn't exist, startForeground() throws
+        // CannotPostForegroundServiceNotificationException and the app is killed. We create
+        // our own test channel below; this creates the library's channel too.
+        DfuServiceInitiator.createDfuNotificationChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

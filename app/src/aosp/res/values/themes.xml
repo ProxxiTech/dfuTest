@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      AOSP flavor only: a light-green theme so this build is visually distinct from the
+      "Handoff" build on the device. This file lives in the `aosp` flavor source set, so it
+      overrides Theme.BleDfuTesterActivity for the aosp variant and leaves handoff untouched.
+    -->
+    <color name="aosp_green">#2E7D32</color>        <!-- primary / accent (green 800) -->
+    <color name="aosp_green_dark">#1B5E20</color>   <!-- status bar (green 900) -->
+    <color name="aosp_green_bg">#E8F5E9</color>     <!-- light-green window background (green 50) -->
+
+    <style name="Theme.BleDfuTesterActivity" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/aosp_green_bg</item>
+        <item name="android:colorBackground">@color/aosp_green_bg</item>
+        <item name="android:colorPrimary">@color/aosp_green</item>
+        <item name="android:colorPrimaryDark">@color/aosp_green_dark</item>
+        <item name="android:colorAccent">@color/aosp_green</item>
+        <item name="android:statusBarColor">@color/aosp_green_dark</item>
+    </style>
+</resources>

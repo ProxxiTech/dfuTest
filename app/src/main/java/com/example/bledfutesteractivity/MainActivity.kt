@@ -55,6 +55,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var editTextIterations: EditText
     private lateinit var editTextTimeout: EditText
     private lateinit var buttonStartStopTest: Button
+    private lateinit var buttonProdDfuProduction: Button
+    private lateinit var buttonProdDfuImproved: Button
     private lateinit var progressBar: LinearProgressIndicator
     private lateinit var logScrollView: ScrollView
     private lateinit var logTextView: TextView
@@ -68,8 +70,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBarDfu: LinearProgressIndicator
     private lateinit var textIterationStatus: TextView
     private lateinit var textDfuStatus: TextView
-    private lateinit var pieChart: PieChartView
-    private lateinit var textPieLegend: TextView
+    private lateinit var dfuGrid: DfuGridView
+    private lateinit var textGridScore: TextView
 
     private var selectedDevice: BluetoothDevice? = null
     private var cachedFirmwareFile: File? = null
@@ -161,6 +163,8 @@ class MainActivity : AppCompatActivity() {
         editTextIterations = findViewById(R.id.edit_text_iterations)
         editTextTimeout = findViewById(R.id.edit_text_timeout)
         buttonStartStopTest = findViewById(R.id.button_start_stop_test)
+        buttonProdDfuProduction = findViewById(R.id.button_prod_dfu_production)
+        buttonProdDfuImproved = findViewById(R.id.button_prod_dfu_improved)
         progressBar = findViewById(R.id.progress_bar)
         logScrollView = findViewById(R.id.log_scroll_view)
         logTextView = findViewById(R.id.log_text_view)
@@ -171,8 +175,8 @@ class MainActivity : AppCompatActivity() {
         progressBarDfu = findViewById(R.id.progress_bar_dfu)
         textIterationStatus = findViewById(R.id.text_iteration_status)
         textDfuStatus = findViewById(R.id.text_dfu_status)
-        pieChart = findViewById(R.id.pie_chart)
-        textPieLegend = findViewById(R.id.text_pie_legend)
+        dfuGrid = findViewById(R.id.dfu_grid)
+        textGridScore = findViewById(R.id.text_grid_score)
         sliderDelay = findViewById(R.id.slider_delay)
         textDelayLabel = findViewById(R.id.text_delay_label)
 
@@ -225,6 +229,9 @@ class MainActivity : AppCompatActivity() {
 
         buttonStartStopTest.setOnClickListener { onStartStopTestClicked() }
 
+        buttonProdDfuProduction.setOnClickListener { onProdDfuClicked(improved = false) }
+        buttonProdDfuImproved.setOnClickListener { onProdDfuClicked(improved = true) }
+
         buttonShareLog.setOnClickListener { onShareLogClicked() }
 
         buttonNewTest.setOnClickListener { resetForNewTest() }
@@ -274,6 +281,41 @@ class MainActivity : AppCompatActivity() {
             }
             service.startTest(device.name, device.address, firmwareFile, iterations, timeout, delayMin, delayMax)
         }
+    }
+
+    private fun onProdDfuClicked(improved: Boolean) {
+        if (viewModel.isTestRunning.value) {
+            dfuService?.stopTest()
+            return
+        }
+        val service = dfuService
+        if (service == null) {
+            Toast.makeText(this, "Service not ready, please wait a moment.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val device = selectedDevice
+        if (device == null) {
+            Toast.makeText(this, "Please select a target device.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val firmwareFile = cachedFirmwareFile
+        if (firmwareFile == null) {
+            Toast.makeText(this, "Please select a DFU firmware file.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val iterations = editTextIterations.text.toString().toIntOrNull() ?: 10
+        val timeout    = editTextTimeout.text.toString().toLongOrNull() ?: 120
+        val delayMin   = sliderDelay.values.first().toInt()
+        val delayMax   = sliderDelay.values.last().toInt()
+
+        Intent(this, DfuTestingService::class.java).also { intent ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        }
+        service.startProdStyleDfuTest(device.name, device.address, firmwareFile, iterations, timeout, delayMin, delayMax, improved)
     }
 
     private fun onShareLogClicked() {
@@ -369,15 +411,19 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 launch {
-                    viewModel.successCount.collect { updatePieChart() }
+                    viewModel.successCount.collect { updateScore() }
                 }
 
                 launch {
-                    viewModel.failCount.collect { updatePieChart() }
+                    viewModel.failCount.collect { updateScore() }
                 }
 
                 launch {
-                    viewModel.totalIterations.collect { updatePieChart() }
+                    viewModel.totalIterations.collect { updateScore() }
+                }
+
+                launch {
+                    viewModel.dfuGrid.collect { dfuGrid.setGrid(it) }
                 }
             }
         }
@@ -389,13 +435,10 @@ class MainActivity : AppCompatActivity() {
         textIterationStatus.text = if (total > 0) "Iteration: $current / $total" else "–"
     }
 
-    private fun updatePieChart() {
+    private fun updateScore() {
         val success   = viewModel.successCount.value
         val fail      = viewModel.failCount.value
         val remaining = maxOf(0, viewModel.totalIterations.value - success - fail)
-        pieChart.successCount   = success
-        pieChart.failCount      = fail
-        pieChart.remainingCount = remaining
 
         val sb = SpannableStringBuilder()
         fun append(text: String, color: Int) {
@@ -408,7 +451,7 @@ class MainActivity : AppCompatActivity() {
         append("✗$fail",      Color.parseColor("#F44336"))
         sb.append("  ")
         append("…$remaining", Color.parseColor("#9E9E9E"))
-        textPieLegend.text = sb
+        textGridScore.text = sb
     }
 
     private fun requestAllPermissions() {
@@ -513,7 +556,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStartButtonState() {
-        buttonStartStopTest.isEnabled = selectedDevice != null && cachedFirmwareFile != null
+        val haveDevice   = selectedDevice != null
+        val haveFirmware = cachedFirmwareFile != null
+        buttonStartStopTest.isEnabled = haveDevice && haveFirmware
+        // Prod-style DFU mimic needs a device AND a firmware file (it conducts a real DFU).
+        buttonProdDfuProduction.isEnabled = haveDevice && haveFirmware
+        buttonProdDfuImproved.isEnabled = haveDevice && haveFirmware
     }
 
     private fun resetForNewTest() {
@@ -527,9 +575,10 @@ class MainActivity : AppCompatActivity() {
         progressBarDfu.progress = 0
         textIterationStatus.text = "–"
         textDfuStatus.text = "Upload: 0%"
-        textPieLegend.text = ""
+        textGridScore.text = ""
+        dfuGrid.setGrid(null)
         viewModel.resetStats()
-        updatePieChart()
+        updateScore()
 
         expandDeviceSection()
         updateStartButtonState()

@@ -32,6 +32,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _failCount = MutableStateFlow(0)
     private val _totalIterations = MutableStateFlow(0)
     private val _currentIteration = MutableStateFlow(0)
+    private val _dfuGrid = MutableStateFlow<DfuGridSnapshot?>(null)
 
     // Public immutable flows for the UI to observe
     val logMessages = _logMessages.asStateFlow()
@@ -45,6 +46,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val failCount = _failCount.asStateFlow()
     val totalIterations = _totalIterations.asStateFlow()
     val currentIteration = _currentIteration.asStateFlow()
+    val dfuGrid = _dfuGrid.asStateFlow()
 
     private var dfuService: DfuTestingService? = null
     private var serviceJob: Job? = null
@@ -86,6 +88,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch { service.failCountFlow.collect { _failCount.value = it } }
             launch { service.totalIterationsFlow.collect { _totalIterations.value = it } }
             launch { service.currentIterationFlow.collect { _currentIteration.value = it } }
+            launch { service.dfuGridFlow.collect { _dfuGrid.value = it } }
         }
     }
 
@@ -134,6 +137,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _failCount.value = 0
         _totalIterations.value = 0
         _currentIteration.value = 0
+        _dfuGrid.value = null
         _testProgress.value = 0
     }
 
